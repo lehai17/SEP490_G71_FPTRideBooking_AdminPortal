@@ -371,6 +371,207 @@ button {
   font-weight: 900;
 }
 
+.stats-period-tabs {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 27px;
+}
+
+.stats-period-tabs button {
+  min-width: 90px;
+  min-height: 47px;
+  border: 0;
+  border-radius: 999px;
+  background: #e4ebf4;
+  color: #334155;
+  font-size: 17px;
+  font-weight: 900;
+}
+
+.stats-period-tabs button.active {
+  background: var(--brand);
+  color: #fff;
+}
+
+.statistics-grid {
+  display: grid;
+  grid-template-columns: minmax(520px, 1.35fr) minmax(430px, 1fr);
+  gap: 20px;
+}
+
+.statistics-chart-card,
+.statistics-summary-card {
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: var(--shadow);
+}
+
+.statistics-chart-card {
+  min-height: 334px;
+  padding: 28px 26px 24px;
+}
+
+.statistics-chart-card h3,
+.statistics-summary-card span {
+  margin: 0;
+  color: #596b86;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.bar-chart {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  align-items: end;
+  gap: 10px;
+  height: 238px;
+  margin-top: 18px;
+}
+
+.bar-column {
+  display: grid;
+  gap: 12px;
+  align-items: end;
+  height: 100%;
+}
+
+.bar-track {
+  display: flex;
+  height: 196px;
+  align-items: end;
+}
+
+.bar-track span {
+  display: block;
+  width: 100%;
+  min-height: 24px;
+  border-radius: 5px 5px 0 0;
+  background: linear-gradient(180deg, #ff6b10 0%, #ff9c3c 58%, #ffd9a7 100%);
+}
+
+.bar-track .empty-bar {
+  min-height: 0;
+  background: #e8eef7;
+}
+
+.chart-empty-note {
+  position: absolute;
+  inset: 0 0 34px;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 800;
+  text-align: center;
+  pointer-events: none;
+}
+
+.bar-column strong {
+  color: #8b9ab2;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.statistics-card-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(210px, 1fr));
+  gap: 20px;
+}
+
+.statistics-summary-card {
+  min-height: 157px;
+  padding: 25px 20px;
+}
+
+.statistics-summary-card strong {
+  display: block;
+  margin-top: 14px;
+  font-size: 30px;
+  font-weight: 900;
+}
+
+.stat-ink { color: var(--ink); }
+.stat-blue { color: #2357ff; }
+.stat-green { color: #079c4c; }
+.stat-purple { color: #8a38ff; }
+
+.statistics-error {
+  margin-top: 18px;
+}
+
+.performance-card {
+  width: min(685px, 100%);
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: var(--shadow);
+  padding: 28px 26px 0;
+}
+
+.performance-card h3 {
+  margin: 0 0 6px;
+  color: #34445f;
+  font-size: 19px;
+}
+
+.driver-rank-list {
+  display: grid;
+}
+
+.driver-rank-row {
+  display: grid;
+  grid-template-columns: 54px 1fr auto;
+  align-items: center;
+  gap: 15px;
+  min-height: 95px;
+  border-bottom: 1px solid var(--line);
+}
+
+.driver-rank-row:last-child {
+  border-bottom: 0;
+}
+
+.rank-badge {
+  display: grid;
+  width: 52px;
+  height: 52px;
+  place-items: center;
+  border-radius: 50%;
+  color: #fff;
+  font-size: 18px;
+  font-weight: 900;
+}
+
+.rank-gold { background: #f4bd00; }
+.rank-silver { background: #b7c3d3; }
+.rank-orange { background: #ffa24f; }
+.rank-blue { background: #6dabf3; }
+.rank-purple { background: #bd7df0; }
+
+.driver-rank-main,
+.driver-rank-metrics {
+  display: grid;
+  gap: 4px;
+}
+
+.driver-rank-main strong {
+  font-size: 18px;
+}
+
+.driver-rank-main span,
+.driver-rank-metrics span {
+  color: #506683;
+}
+
+.driver-rank-metrics {
+  justify-items: end;
+}
+
+.driver-rank-metrics strong {
+  font-size: 18px;
+  font-weight: 900;
+}
+
 .page-heading-row {
   display: flex;
   align-items: flex-start;
@@ -417,6 +618,130 @@ button {
 .filter-card select {
   border: 1px solid var(--line);
   padding: 0 14px;
+}
+
+.user-driver-toolbar {
+  display: grid;
+  grid-template-columns: auto minmax(360px, 574px);
+  gap: 20px;
+  align-items: center;
+  margin-bottom: 26px;
+}
+
+.pill-tabs {
+  display: inline-flex;
+  gap: 10px;
+}
+
+.pill-tabs button {
+  min-width: 88px;
+  min-height: 46px;
+  border: 0;
+  border-radius: 999px;
+  background: #e6edf6;
+  color: #334155;
+  font-weight: 900;
+}
+
+.pill-tabs button.active {
+  background: var(--brand);
+  color: #fff;
+}
+
+.user-driver-search {
+  height: 48px;
+  background: #fff;
+  box-shadow: 0 1px 0 rgba(10, 24, 51, 0.02);
+}
+
+.user-driver-meta {
+  margin: -12px 0 16px;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.account-card-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(340px, 1fr));
+  gap: 20px;
+}
+
+.account-card {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 18px;
+  min-height: 94px;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: var(--shadow);
+  padding: 20px;
+}
+
+.account-avatar {
+  display: grid;
+  width: 52px;
+  height: 52px;
+  place-items: center;
+  border-radius: 50%;
+  background: #dfe8ff;
+  color: #3159ff;
+  font-size: 19px;
+  font-weight: 900;
+}
+
+.account-card:nth-child(2n) .account-avatar {
+  background: #ffe1f2;
+  color: #d91b83;
+}
+
+.account-main {
+  display: grid;
+  gap: 5px;
+}
+
+.account-main strong {
+  font-size: 17px;
+}
+
+.account-main span {
+  color: #8aa0c1;
+}
+
+.lock-account-button,
+.unlock-account-button {
+  border: 0;
+  border-radius: 7px;
+  padding: 10px 17px;
+  font-weight: 800;
+}
+
+.lock-account-button {
+  background: #fff1f1;
+  color: #ef1f1f;
+}
+
+.unlock-account-button {
+  background: #e7f9ef;
+  color: #0f9f55;
+}
+
+.empty-state-card {
+  border: 1px dashed #d7e1ef;
+  border-radius: 16px;
+  background: #fff;
+  color: var(--muted);
+  padding: 24px;
+  font-weight: 800;
+}
+
+.card-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 18px;
+  color: var(--muted);
+  font-weight: 800;
 }
 
 .notice-card {
@@ -512,6 +837,10 @@ th {
   color: #ff243d;
 }
 
+.action-icons .unlock-action {
+  color: #10b981;
+}
+
 .modal-backdrop {
   position: fixed;
   inset: 0;
@@ -528,6 +857,10 @@ th {
   background: #fff;
   box-shadow: 0 30px 80px rgba(7, 20, 45, 0.28);
   padding: 26px;
+}
+
+.compact-modal {
+  width: min(500px, 100%);
 }
 
 .modal-heading {
@@ -585,6 +918,28 @@ th {
 .modal-form select:focus {
   border-color: var(--brand);
   box-shadow: 0 0 0 4px rgba(255, 107, 10, 0.12);
+}
+
+.detail-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.detail-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  border-radius: 12px;
+  background: #f8fafc;
+  padding: 13px 14px;
+}
+
+.detail-item span {
+  color: var(--muted);
+}
+
+.detail-item strong {
+  text-align: right;
 }
 
 .empty-cell {

@@ -8,16 +8,15 @@ import {
   ChevronLeft,
   ChevronRight,
   Eye,
-  FileCheck2,
   Gauge,
   KeyRound,
   LayoutDashboard,
   Lock,
   LogOut,
-  MessageCircle,
   Search,
   Settings,
   ShieldAlert,
+  Unlock,
   Users,
   UserRoundPlus,
 } from "lucide-react";
@@ -45,6 +44,18 @@ async function parseResponseBody(response) {
 }
 
 function getErrorMessage(data, response) {
+  if (Array.isArray(data)) {
+    const messages = data
+      .map((item) => item?.errorMessage || item?.ErrorMessage || item?.message || item?.Message)
+      .filter(Boolean);
+    if (messages.length) return messages.join("; ");
+  }
+
+  if (data?.errors && typeof data.errors === "object") {
+    const messages = Object.values(data.errors).flat().filter(Boolean);
+    if (messages.length) return messages.join("; ");
+  }
+
   return (
     data?.message ||
     data?.title ||
@@ -72,18 +83,29 @@ async function fetchApi(url, { token, ...options } = {}) {
 const MENU_ITEMS = [
   { key: "dashboard", label: "Dashboard", icon: LayoutDashboard },
   { key: "users", label: "Users & Drivers", icon: Users },
-  { key: "driver-review", label: "Duyệt hồ sơ tài xế", icon: FileCheck2 },
-  { key: "feedback", label: "Feedback", icon: MessageCircle },
   { key: "statistics", label: "Thống kê", icon: BarChart3 },
   { key: "performance", label: "Hiệu suất", icon: Gauge },
   { key: "staff", label: "Quản lý nhân viên", icon: UserRoundPlus },
   { key: "pricing", label: "Cấu hình phí", icon: Settings },
 ];
 
-const ROLE_OPTIONS = ["Tất cả vai trò", "Admin", "Manager", "Staff", "Driver", "Customer"];
+const ROLE_OPTIONS = ["Tất cả vai trò", "Manager", "Staff"];
 const EMPLOYEE_CREATE_ROLES = ["Staff", "Manager"];
 const STATUS_OPTIONS = ["Tất cả trạng thái", "Active", "Inactive", "Locked"];
 const VEHICLE_TABS = ["Bike", "Car"];
+const VEHICLE_TYPE_VALUES = { Bike: 1, Car: 2 };
+const USER_DRIVER_PAGE_SIZE = 10;
+const STAT_PERIODS = ["Ngày", "Tháng", "Năm"];
+const STAT_CHART_LABELS = ["6h", "9h", "12h", "15h", "18h", "21h", "24h"];
+const TOP_DRIVER_RANKS = ["rank-gold", "rank-silver", "rank-orange", "rank-blue", "rank-purple"];
+const PRICING_RULES = [
+  { key: "baseDistance", code: 1, name: "BaseDistance", label: "Số km mở cửa", unit: 2 },
+  { key: "baseFare", code: 2, name: "BaseFare", label: "Giá mở cửa", unit: 1 },
+  { key: "pricePerKm", code: 3, name: "PricePerKm", label: "Giá/km", unit: 1 },
+  { key: "pricePerMinute", code: 4, name: "PricePerMinute", label: "Phí chờ/phút", unit: 1 },
+  { key: "minimumFare", code: 6, name: "MinimumFare", label: "Giá tối thiểu", unit: 1 },
+  { key: "commission", code: 8, name: "Commission", label: "Hoa hồng platform", unit: 4 },
+];
 
 function getStoredSession() {
   try {
@@ -161,6 +183,53 @@ function formatCount(value) {
   const numberValue = Number(value);
   if (!Number.isFinite(numberValue)) return "--";
   return numberValue.toLocaleString("vi-VN");
+}
+
+function isSameDay(value, targetDate = new Date()) {
+  if (!value) return false;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return false;
+  return (
+    date.getFullYear() === targetDate.getFullYear() &&
+    date.getMonth() === targetDate.getMonth() &&
+    date.getDate() === targetDate.getDate()
+  );
+}
+
+function pickNumber(source, keys) {
+  for (const key of keys) {
+    const value = Number(source?.[key]);
+    if (Number.isFinite(value)) return value;
+  }
+  return null;
+}
+
+function formatOptionalRating(value) {
+  const numberValue = Number(value);
+  if (!Number.isFinite(numberValue)) return "--";
+  return numberValue.toFixed(1);
+}
+
+function formatOptionalPercent(value) {
+  const numberValue = Number(value);
+  if (!Number.isFinite(numberValue)) return "--";
+  return `${Math.round(numberValue)}%`;
+}
+
+function getInitials(value) {
+  const words = String(value || "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (!words.length) return "NA";
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+  return `${words[0][0]}${words[words.length - 1][0]}`.toUpperCase();
+}
+
+function getAccountSubtitle(account) {
+  const studentId = account.studentId || account.studentCode || account.code;
+  const email = account.email || "--";
+  return studentId ? `${studentId} · ${email}` : email;
 }
 
 function normalizeRuleCode(ruleCode) {
@@ -357,9 +426,12 @@ function AdminShell({ session, activePage, onNavigate, onLogout }) {
 
         <main className="page-content">
           {activePage === "dashboard" ? <Dashboard token={session.accessToken} /> : null}
+          {activePage === "users" ? <UsersDriversManagement token={session.accessToken} /> : null}
+          {activePage === "statistics" ? <StatisticsPage token={session.accessToken} /> : null}
+          {activePage === "performance" ? <PerformancePage token={session.accessToken} /> : null}
           {activePage === "staff" ? <StaffManagement token={session.accessToken} /> : null}
           {activePage === "pricing" ? <PricingConfig token={session.accessToken} /> : null}
-          {!["dashboard", "staff", "pricing"].includes(activePage) ? (
+          {!["dashboard", "users", "statistics", "performance", "staff", "pricing"].includes(activePage) ? (
             <BlankPage title={activeItem?.label || "Trang quản trị"} />
           ) : null}
         </main>
@@ -453,6 +525,366 @@ function Dashboard({ token }) {
   );
 }
 
+function StatisticsPage({ token }) {
+  const [activePeriod, setActivePeriod] = useState("Ngày");
+  const [stats, setStats] = useState({
+    newUsersToday: null,
+    totalDrivers: null,
+    tripsToday: null,
+    revenueToday: null,
+    activeDrivers: null,
+  });
+  const [error, setError] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+    setIsLoading(true);
+    setError("");
+
+    Promise.allSettled([
+      apiRequest("/accounts?page=1&pageSize=100", { token }),
+      apiRequest("/accounts?role=Driver&page=1&pageSize=1", { token }),
+    ]).then(([accountsResult, driversResult]) => {
+      if (!isMounted) return;
+
+      const nextStats = {
+        newUsersToday: null,
+        totalDrivers: null,
+        tripsToday: null,
+        revenueToday: null,
+        activeDrivers: null,
+      };
+      const errors = [];
+
+      if (accountsResult.status === "fulfilled") {
+        nextStats.newUsersToday = getListPayload(accountsResult.value).filter((account) =>
+          isSameDay(account.createdAt)
+        ).length;
+      } else {
+        errors.push(accountsResult.reason.message);
+      }
+
+      if (driversResult.status === "fulfilled") {
+        nextStats.totalDrivers = getTotalCount(driversResult.value);
+      } else {
+        errors.push(driversResult.reason.message);
+      }
+
+      setStats(nextStats);
+      setError(errors[0] || "");
+      setIsLoading(false);
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [token]);
+
+  const statCards = [
+    { label: "Doanh thu hôm nay", value: formatCurrency(stats.revenueToday), tone: "ink" },
+    {
+      label: "User mới",
+      value: stats.newUsersToday === null ? "--" : `+${formatCount(stats.newUsersToday)}`,
+      tone: "blue",
+    },
+    { label: "Driver hoạt động", value: formatCount(stats.activeDrivers), tone: "green" },
+    { label: "Chuyến hôm nay", value: formatCount(stats.tripsToday), tone: "purple" },
+  ];
+
+  return (
+    <section>
+      <h2 className="page-title">Thống kê</h2>
+
+      <div className="stats-period-tabs">
+        {STAT_PERIODS.map((period) => (
+          <button
+            key={period}
+            className={activePeriod === period ? "active" : ""}
+            onClick={() => setActivePeriod(period)}
+          >
+            {period}
+          </button>
+        ))}
+      </div>
+
+      <div className="statistics-grid">
+        <article className="statistics-chart-card">
+          <h3>Chuyến đi hôm nay</h3>
+          <div className="bar-chart" aria-label="Biểu đồ chuyến đi hôm nay">
+            {STAT_CHART_LABELS.map((label) => (
+              <div className="bar-column" key={label}>
+                <div className="bar-track">
+                  <span className="empty-bar" style={{ height: 0 }} />
+                </div>
+                <strong>{label}</strong>
+              </div>
+            ))}
+            <div className="chart-empty-note">
+              {isLoading
+                ? "Đang tải dữ liệu..."
+                : "Chưa có API thống kê số chuyến theo khung giờ."}
+            </div>
+          </div>
+        </article>
+
+        <div className="statistics-card-grid">
+          {statCards.map((card) => (
+            <article className="statistics-summary-card" key={card.label}>
+              <span>{card.label}</span>
+              <strong className={`stat-${card.tone}`}>{card.value}</strong>
+            </article>
+          ))}
+        </div>
+      </div>
+
+      {error ? <div className="notice-card statistics-error">{error}</div> : null}
+      <p className="data-note">
+        User mới và tổng driver lấy từ DB qua API tài khoản. Doanh thu, chuyến hôm nay,
+        driver hoạt động và biểu đồ theo giờ đang chờ BE bổ sung API thống kê tổng hợp.
+      </p>
+    </section>
+  );
+}
+
+function PerformancePage({ token }) {
+  const [drivers, setDrivers] = useState([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let isMounted = true;
+    setIsLoading(true);
+    setError("");
+
+    apiRequest("/accounts?role=Driver&page=1&pageSize=5", { token })
+      .then((data) => {
+        if (!isMounted) return;
+        setDrivers(getListPayload(data));
+      })
+      .catch((requestError) => {
+        if (!isMounted) return;
+        setDrivers([]);
+        setError(requestError.message);
+      })
+      .finally(() => {
+        if (isMounted) setIsLoading(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [token]);
+
+  return (
+    <section>
+      <h2 className="page-title">Hiệu suất</h2>
+      {error ? <div className="notice-card">{error}</div> : null}
+
+      <article className="performance-card">
+        <h3>Top Drivers</h3>
+
+        {isLoading ? (
+          <div className="empty-cell">Đang tải danh sách tài xế...</div>
+        ) : drivers.length ? (
+          <div className="driver-rank-list">
+            {drivers.map((driver, index) => {
+              const tripCount = pickNumber(driver, [
+                "completedTrips",
+                "totalTrips",
+                "tripCount",
+                "completedTripCount",
+              ]);
+              const rating = pickNumber(driver, ["averageRating", "rating", "ratingAverage"]);
+              const completionRate = pickNumber(driver, [
+                "completionRate",
+                "successRate",
+                "completedRate",
+              ]);
+
+              return (
+                <div className="driver-rank-row" key={driver.userId || driver.email}>
+                  <span className={`rank-badge ${TOP_DRIVER_RANKS[index] || "rank-blue"}`}>
+                    {index + 1}
+                  </span>
+                  <div className="driver-rank-main">
+                    <strong>{driver.fullName || driver.email || "--"}</strong>
+                    <span>
+                      {tripCount === null ? "--" : formatCount(tripCount)} chuyến
+                    </span>
+                  </div>
+                  <div className="driver-rank-metrics">
+                    <strong>{formatOptionalRating(rating)}★</strong>
+                    <span>{formatOptionalPercent(completionRate)}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="empty-cell">Chưa có tài xế trong DB.</div>
+        )}
+      </article>
+
+      <p className="data-note">
+        Danh sách tài xế lấy từ DB qua API tài khoản. Số chuyến, rating và tỷ lệ hoàn thành
+        sẽ hiển thị khi BE trả thêm các trường hiệu suất cho driver.
+      </p>
+    </section>
+  );
+}
+
+function UsersDriversManagement({ token }) {
+  const [activeTab, setActiveTab] = useState("Customer");
+  const [keyword, setKeyword] = useState("");
+  const [page, setPage] = useState(1);
+  const [accounts, setAccounts] = useState([]);
+  const [accountTotal, setAccountTotal] = useState(0);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  const tabLabel = activeTab === "Driver" ? "Drivers" : "Users";
+
+  useEffect(() => {
+    const params = new URLSearchParams({
+      page: String(page),
+      pageSize: String(USER_DRIVER_PAGE_SIZE),
+      role: activeTab,
+    });
+    if (keyword.trim()) params.set("keyword", keyword.trim());
+
+    setIsLoading(true);
+    setError("");
+    apiRequest(`/accounts?${params.toString()}`, { token })
+      .then((data) => {
+        setAccounts(getListPayload(data));
+        setAccountTotal(getTotalCount(data));
+      })
+      .catch((requestError) => {
+        setAccounts([]);
+        setAccountTotal(0);
+        setError(requestError.message);
+      })
+      .finally(() => setIsLoading(false));
+  }, [activeTab, keyword, page, token, refreshKey]);
+
+  const totalPages = Math.max(1, Math.ceil(accountTotal / USER_DRIVER_PAGE_SIZE));
+  const startIndex = accountTotal ? (page - 1) * USER_DRIVER_PAGE_SIZE + 1 : 0;
+  const endIndex = Math.min(page * USER_DRIVER_PAGE_SIZE, accountTotal);
+
+  function changeTab(nextTab) {
+    setActiveTab(nextTab);
+    setKeyword("");
+    setPage(1);
+  }
+
+  async function handleToggleLock(account) {
+    const nextLockedState = !account.isLocked;
+    const actionText = nextLockedState ? "khóa" : "mở khóa";
+    const isConfirmed = window.confirm(`Bạn có chắc muốn ${actionText} tài khoản ${account.email}?`);
+    if (!isConfirmed) return;
+
+    try {
+      await apiRequest(`/accounts/${account.userId}/status`, {
+        token,
+        method: "PUT",
+        body: JSON.stringify({ isLocked: nextLockedState }),
+      });
+      setRefreshKey((value) => value + 1);
+    } catch (requestError) {
+      setError(requestError.message);
+    }
+  }
+
+  return (
+    <section>
+      <h2 className="page-title">Quản lý Users & Drivers</h2>
+
+      <div className="user-driver-toolbar">
+        <div className="pill-tabs">
+          <button
+            className={activeTab === "Customer" ? "active" : ""}
+            onClick={() => changeTab("Customer")}
+          >
+            Users
+          </button>
+          <button
+            className={activeTab === "Driver" ? "active" : ""}
+            onClick={() => changeTab("Driver")}
+          >
+            Drivers
+          </button>
+        </div>
+
+        <div className="search-box user-driver-search">
+          <Search size={20} />
+          <input
+            value={keyword}
+            placeholder="Tìm theo tên, email..."
+            onChange={(event) => {
+              setKeyword(event.target.value);
+              setPage(1);
+            }}
+          />
+        </div>
+      </div>
+
+      {error ? <div className="notice-card">{error}</div> : null}
+
+      <div className="user-driver-meta">
+        {isLoading ? `Đang tải ${tabLabel.toLowerCase()}...` : `${accountTotal} ${tabLabel}`}
+      </div>
+
+      {isLoading ? null : accounts.length ? (
+        <div className="account-card-grid">
+          {accounts.map((account) => (
+            <article className="account-card" key={account.userId || account.email}>
+              <div className="account-avatar">
+                {getInitials(account.fullName || account.email)}
+              </div>
+              <div className="account-main">
+                <strong>{account.fullName || "--"}</strong>
+                <span>{getAccountSubtitle(account)}</span>
+              </div>
+              <button
+                className={account.isLocked ? "unlock-account-button" : "lock-account-button"}
+                onClick={() => handleToggleLock(account)}
+              >
+                {account.isLocked ? "Mở khóa" : "Khóa"}
+              </button>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <div className="empty-state-card">
+          Chưa có dữ liệu {activeTab === "Driver" ? "tài xế" : "người dùng"} từ BE.
+        </div>
+      )}
+
+      <div className="card-pagination">
+        <span>
+          {accountTotal
+            ? `Hiển thị ${startIndex}-${endIndex} của ${accountTotal} ${tabLabel.toLowerCase()}`
+            : `Chưa có ${tabLabel.toLowerCase()} phù hợp`}
+        </span>
+        <div className="pagination">
+          <button disabled={page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>
+            <ChevronLeft size={16} />
+          </button>
+          <button className="active-page">{page}</button>
+          <button
+            disabled={page >= totalPages}
+            onClick={() => setPage((value) => Math.min(totalPages, value + 1))}
+          >
+            <ChevronRight size={16} />
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function StaffManagement({ token }) {
   const [keyword, setKeyword] = useState("");
   const [role, setRole] = useState("Tất cả vai trò");
@@ -472,20 +904,41 @@ function StaffManagement({ token }) {
   const [refreshKey, setRefreshKey] = useState(0);
   const [error, setError] = useState("");
   const [createError, setCreateError] = useState("");
+  const [selectedAccount, setSelectedAccount] = useState(null);
+  const [resetAccount, setResetAccount] = useState(null);
+  const [resetPasswordForm, setResetPasswordForm] = useState({
+    newPassword: "",
+    confirmPassword: "",
+  });
+  const [resetError, setResetError] = useState("");
+  const [isResetting, setIsResetting] = useState(false);
 
   useEffect(() => {
-    const params = new URLSearchParams({ page: "1", pageSize: "50" });
-    if (keyword.trim()) params.set("keyword", keyword.trim());
-    if (role !== "Tất cả vai trò") params.set("role", role);
-    if (status === "Locked") params.set("isLocked", "true");
-    if (status === "Active") params.set("isLocked", "false");
-
+    const rolesToFetch = role === "Tất cả vai trò" ? ["Manager", "Staff"] : [role];
     setIsLoading(true);
     setError("");
-    apiRequest(`/accounts?${params.toString()}`, { token })
-      .then((data) => {
-        setAccounts(getListPayload(data));
-        setAccountTotal(getTotalCount(data));
+    Promise.all(
+      rolesToFetch.map((employeeRole) => {
+        const params = new URLSearchParams({
+          page: "1",
+          pageSize: "50",
+          role: employeeRole,
+        });
+        if (keyword.trim()) params.set("keyword", keyword.trim());
+        if (status === "Locked") params.set("isLocked", "true");
+        if (status === "Active") params.set("isLocked", "false");
+
+        return apiRequest(`/accounts?${params.toString()}`, { token });
+      })
+    )
+      .then((responses) => {
+        const mergedAccounts = responses
+          .flatMap((data) => getListPayload(data))
+          .filter((account) => ["manager", "staff"].includes(String(account.role).toLowerCase()));
+        const mergedTotal = responses.reduce((total, data) => total + getTotalCount(data), 0);
+
+        setAccounts(mergedAccounts);
+        setAccountTotal(mergedTotal);
       })
       .catch((requestError) => {
         setAccounts([]);
@@ -501,9 +954,99 @@ function StaffManagement({ token }) {
     setCreateForm((current) => ({ ...current, [field]: value }));
   }
 
+  function openCreateModal() {
+    setCreateForm({
+      fullName: "",
+      email: "",
+      phoneNumber: "",
+      password: "",
+      role: "Staff",
+    });
+    setCreateError("");
+    setIsCreateOpen(true);
+  }
+
+  function closeResetModal() {
+    setResetAccount(null);
+    setResetError("");
+    setResetPasswordForm({ newPassword: "", confirmPassword: "" });
+  }
+
+  async function handleResetPassword(event) {
+    event.preventDefault();
+    setResetError("");
+
+    if (resetPasswordForm.newPassword !== resetPasswordForm.confirmPassword) {
+      setResetError("Mật khẩu xác nhận không khớp.");
+      return;
+    }
+
+    setIsResetting(true);
+    try {
+      await apiRequest(`/accounts/${resetAccount.userId}/reset-password`, {
+        token,
+        method: "PUT",
+        body: JSON.stringify(resetPasswordForm),
+      });
+      closeResetModal();
+    } catch (requestError) {
+      setResetError(requestError.message);
+    } finally {
+      setIsResetting(false);
+    }
+  }
+
+  async function handleToggleLock(account) {
+    const nextLockedState = !account.isLocked;
+    const actionText = nextLockedState ? "khóa" : "mở khóa";
+    const isConfirmed = window.confirm(`Bạn có chắc muốn ${actionText} tài khoản ${account.email}?`);
+    if (!isConfirmed) return;
+
+    try {
+      await apiRequest(`/accounts/${account.userId}/status`, {
+        token,
+        method: "PUT",
+        body: JSON.stringify({ isLocked: nextLockedState }),
+      });
+      setRefreshKey((value) => value + 1);
+    } catch (requestError) {
+      setError(requestError.message);
+    }
+  }
+
   async function handleCreateAccount(event) {
     event.preventDefault();
     setCreateError("");
+
+    const trimmedFullName = createForm.fullName.trim();
+    const trimmedEmail = createForm.email.trim();
+    const trimmedPhoneNumber = createForm.phoneNumber.trim();
+
+    if (!trimmedFullName) {
+      setCreateError("Vui lòng nhập họ và tên.");
+      return;
+    }
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+      setCreateError("Email không đúng định dạng.");
+      return;
+    }
+
+    if (trimmedPhoneNumber && !/^(0[1-9][0-9]{8}|[1-9][0-9]{8})$/.test(trimmedPhoneNumber)) {
+      setCreateError("Số điện thoại phải đúng định dạng Việt Nam, ví dụ 0912345678.");
+      return;
+    }
+
+    if (
+      createForm.password.length < 6 ||
+      !/[A-Z]/.test(createForm.password) ||
+      !/[a-z]/.test(createForm.password) ||
+      !/[0-9]/.test(createForm.password)
+    ) {
+      setCreateError("Mật khẩu phải có ít nhất 6 ký tự, gồm chữ hoa, chữ thường và số.");
+      return;
+    }
+
     setIsCreating(true);
 
     try {
@@ -511,9 +1054,9 @@ function StaffManagement({ token }) {
         token,
         method: "POST",
         body: JSON.stringify({
-          fullName: createForm.fullName.trim(),
-          email: createForm.email.trim(),
-          phoneNumber: createForm.phoneNumber.trim() || null,
+          fullName: trimmedFullName,
+          email: trimmedEmail,
+          phoneNumber: trimmedPhoneNumber || null,
           password: createForm.password,
           role: createForm.role,
           address: null,
@@ -544,7 +1087,7 @@ function StaffManagement({ token }) {
           <h2 className="page-title">Quản lý nhân viên</h2>
           <p>{accountTotal} Staff</p>
         </div>
-        <button className="primary-button" onClick={() => setIsCreateOpen(true)}>
+        <button className="primary-button" onClick={openCreateModal}>
           <UserRoundPlus size={18} />
           Tạo tài khoản
         </button>
@@ -613,14 +1156,25 @@ function StaffManagement({ token }) {
                   <td>{formatDate(account.createdAt)}</td>
                   <td>
                     <div className="action-icons">
-                      <button aria-label="Xem chi tiết">
+                      <button aria-label="Xem chi tiết" onClick={() => setSelectedAccount(account)}>
                         <Eye size={17} />
                       </button>
-                      <button aria-label="Đặt lại mật khẩu">
+                      <button
+                        aria-label="Đặt lại mật khẩu"
+                        onClick={() => {
+                          setResetAccount(account);
+                          setResetPasswordForm({ newPassword: "", confirmPassword: "" });
+                          setResetError("");
+                        }}
+                      >
                         <KeyRound size={17} />
                       </button>
-                      <button aria-label="Khóa tài khoản">
-                        <Lock size={17} />
+                      <button
+                        aria-label={account.isLocked ? "Mở khóa tài khoản" : "Khóa tài khoản"}
+                        className={account.isLocked ? "unlock-action" : ""}
+                        onClick={() => handleToggleLock(account)}
+                      >
+                        {account.isLocked ? <Unlock size={17} /> : <Lock size={17} />}
                       </button>
                     </div>
                   </td>
@@ -675,6 +1229,7 @@ function StaffManagement({ token }) {
                 <input
                   value={createForm.email}
                   type="email"
+                  autoComplete="off"
                   onChange={(event) => updateCreateForm("email", event.target.value)}
                   placeholder="staff@fpt.edu.vn"
                   required
@@ -704,6 +1259,7 @@ function StaffManagement({ token }) {
                 <input
                   value={createForm.password}
                   type="password"
+                  autoComplete="new-password"
                   minLength={6}
                   onChange={(event) => updateCreateForm("password", event.target.value)}
                   placeholder="Tối thiểu 6 ký tự"
@@ -720,7 +1276,94 @@ function StaffManagement({ token }) {
           </section>
         </div>
       ) : null}
+
+      {selectedAccount ? (
+        <div className="modal-backdrop" role="presentation">
+          <section className="modal-card compact-modal" aria-label="Chi tiết nhân viên">
+            <div className="modal-heading">
+              <div>
+                <h3>Chi tiết nhân viên</h3>
+                <p>{selectedAccount.email}</p>
+              </div>
+              <button className="ghost-button" onClick={() => setSelectedAccount(null)}>
+                Đóng
+              </button>
+            </div>
+            <div className="detail-grid">
+              <DetailItem label="Họ tên" value={selectedAccount.fullName} />
+              <DetailItem label="Email" value={selectedAccount.email} />
+              <DetailItem label="Số điện thoại" value={selectedAccount.phoneNumber} />
+              <DetailItem label="Vai trò" value={selectedAccount.role} />
+              <DetailItem label="Trạng thái" value={selectedAccount.isLocked ? "Locked" : "Active"} />
+              <DetailItem label="Ngày tạo" value={formatDate(selectedAccount.createdAt)} />
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {resetAccount ? (
+        <div className="modal-backdrop" role="presentation">
+          <section className="modal-card compact-modal" aria-label="Đặt lại mật khẩu">
+            <div className="modal-heading">
+              <div>
+                <h3>Đặt lại mật khẩu</h3>
+                <p>{resetAccount.email}</p>
+              </div>
+              <button className="ghost-button" onClick={closeResetModal}>
+                Đóng
+              </button>
+            </div>
+            <form className="modal-form" onSubmit={handleResetPassword}>
+              <label>
+                Mật khẩu mới
+                <input
+                  value={resetPasswordForm.newPassword}
+                  type="password"
+                  minLength={6}
+                  autoComplete="new-password"
+                  onChange={(event) =>
+                    setResetPasswordForm((current) => ({
+                      ...current,
+                      newPassword: event.target.value,
+                    }))
+                  }
+                  required
+                />
+              </label>
+              <label>
+                Xác nhận mật khẩu
+                <input
+                  value={resetPasswordForm.confirmPassword}
+                  type="password"
+                  minLength={6}
+                  autoComplete="new-password"
+                  onChange={(event) =>
+                    setResetPasswordForm((current) => ({
+                      ...current,
+                      confirmPassword: event.target.value,
+                    }))
+                  }
+                  required
+                />
+              </label>
+              {resetError ? <div className="error-banner">{resetError}</div> : null}
+              <button className="primary-button" type="submit" disabled={isResetting}>
+                {isResetting ? "Đang cập nhật..." : "Cập nhật mật khẩu"}
+              </button>
+            </form>
+          </section>
+        </div>
+      ) : null}
     </section>
+  );
+}
+
+function DetailItem({ label, value }) {
+  return (
+    <div className="detail-item">
+      <span>{label}</span>
+      <strong>{value || "--"}</strong>
+    </div>
   );
 }
 
@@ -728,6 +1371,19 @@ function PricingConfig({ token }) {
   const [activeVehicle, setActiveVehicle] = useState("Bike");
   const [settings, setSettings] = useState([]);
   const [error, setError] = useState("");
+  const [isPricingOpen, setIsPricingOpen] = useState(false);
+  const [isSavingPricing, setIsSavingPricing] = useState(false);
+  const [pricingError, setPricingError] = useState("");
+  const [pricingForm, setPricingForm] = useState({
+    baseDistance: "",
+    baseFare: "",
+    pricePerKm: "",
+    pricePerMinute: "",
+    minimumFare: "",
+    commission: "",
+    description: "",
+  });
+  const [pricingRefreshKey, setPricingRefreshKey] = useState(0);
 
   useEffect(() => {
     apiRequest("/admin/pricing", { token })
@@ -736,16 +1392,76 @@ function PricingConfig({ token }) {
         setError("");
       })
       .catch((requestError) => setError(requestError.message));
-  }, [token]);
+  }, [token, pricingRefreshKey]);
 
   const currentSetting =
     settings.find((item) => item.vehicleType === activeVehicle) ||
     settings.find((item) => String(item.vehicleType).toLowerCase() === activeVehicle.toLowerCase());
 
+  const baseDistance = pickRule(currentSetting, "BaseDistance");
   const baseFare = pickRule(currentSetting, "BaseFare");
   const pricePerKm = pickRule(currentSetting, "PricePerKm");
   const pricePerMinute = pickRule(currentSetting, "PricePerMinute");
+  const minimumFare = pickRule(currentSetting, "MinimumFare");
   const commission = pickRule(currentSetting, "Commission");
+
+  function openPricingModal() {
+    setPricingForm({
+      baseDistance: String(baseDistance?.decimalValue ?? "2"),
+      baseFare: String(baseFare?.decimalValue ?? ""),
+      pricePerKm: String(pricePerKm?.decimalValue ?? ""),
+      pricePerMinute: String(pricePerMinute?.decimalValue ?? ""),
+      minimumFare: String(minimumFare?.decimalValue ?? baseFare?.decimalValue ?? ""),
+      commission: String(commission?.decimalValue ?? ""),
+      description: currentSetting?.description || "",
+    });
+    setPricingError("");
+    setIsPricingOpen(true);
+  }
+
+  function updatePricingForm(field, value) {
+    setPricingForm((current) => ({ ...current, [field]: value }));
+  }
+
+  async function handleUpdatePricing(event) {
+    event.preventDefault();
+    setPricingError("");
+    setIsSavingPricing(true);
+
+    try {
+      const createdVersion = await apiRequest("/admin/pricing/version", {
+        token,
+        method: "POST",
+        body: JSON.stringify({
+          vehicleType: VEHICLE_TYPE_VALUES[activeVehicle],
+          description: pricingForm.description.trim() || `Cập nhật cấu hình ${activeVehicle}`,
+          effectiveFrom: new Date().toISOString(),
+          rules: PRICING_RULES.map((rule) => ({
+            ruleCode: rule.code,
+            ruleName: rule.name,
+            decimalValue: Number(pricingForm[rule.key] || pricingForm.baseFare || 0),
+            unit: rule.unit,
+            description: rule.label,
+          })),
+        }),
+      });
+
+      const createdVersionId = createdVersion?.id ?? createdVersion?.Id;
+      if (createdVersionId) {
+        await apiRequest(`/admin/pricing/publish/${createdVersionId}`, {
+          token,
+          method: "PUT",
+        });
+      }
+
+      setIsPricingOpen(false);
+      setPricingRefreshKey((value) => value + 1);
+    } catch (requestError) {
+      setPricingError(requestError.message);
+    } finally {
+      setIsSavingPricing(false);
+    }
+  }
 
   return (
     <section>
@@ -773,8 +1489,84 @@ function PricingConfig({ token }) {
           label="Hoa hồng platform"
           value={commission ? `${commission.decimalValue}%` : "--"}
         />
-        <button className="primary-button pricing-button">Cập nhật cấu hình</button>
+        <button className="primary-button pricing-button" onClick={openPricingModal}>
+          Cập nhật cấu hình
+        </button>
       </article>
+
+      {isPricingOpen ? (
+        <div className="modal-backdrop" role="presentation">
+          <section className="modal-card" aria-label="Cập nhật cấu hình phí">
+            <div className="modal-heading">
+              <div>
+                <h3>Cập nhật cấu hình phí</h3>
+                <p>Tạo version giá mới cho {activeVehicle}.</p>
+              </div>
+              <button className="ghost-button" onClick={() => setIsPricingOpen(false)}>
+                Đóng
+              </button>
+            </div>
+
+            <form className="modal-form" onSubmit={handleUpdatePricing}>
+              <label>
+                Giá mở cửa
+                <input
+                  value={pricingForm.baseFare}
+                  type="number"
+                  min="0"
+                  onChange={(event) => updatePricingForm("baseFare", event.target.value)}
+                  required
+                />
+              </label>
+              <label>
+                Giá/km
+                <input
+                  value={pricingForm.pricePerKm}
+                  type="number"
+                  min="0"
+                  onChange={(event) => updatePricingForm("pricePerKm", event.target.value)}
+                  required
+                />
+              </label>
+              <label>
+                Phí chờ/phút
+                <input
+                  value={pricingForm.pricePerMinute}
+                  type="number"
+                  min="0"
+                  onChange={(event) => updatePricingForm("pricePerMinute", event.target.value)}
+                  required
+                />
+              </label>
+              <label>
+                Hoa hồng platform (%)
+                <input
+                  value={pricingForm.commission}
+                  type="number"
+                  min="0"
+                  max="100"
+                  onChange={(event) => updatePricingForm("commission", event.target.value)}
+                  required
+                />
+              </label>
+              <label>
+                Mô tả
+                <input
+                  value={pricingForm.description}
+                  onChange={(event) => updatePricingForm("description", event.target.value)}
+                  placeholder="Ghi chú version giá"
+                />
+              </label>
+
+              {pricingError ? <div className="error-banner">{pricingError}</div> : null}
+
+              <button className="primary-button" type="submit" disabled={isSavingPricing}>
+                {isSavingPricing ? "Đang cập nhật..." : "Lưu cấu hình"}
+              </button>
+            </form>
+          </section>
+        </div>
+      ) : null}
     </section>
   );
 }

@@ -11,6 +11,7 @@ import {
   Gauge,
   KeyRound,
   LayoutDashboard,
+  LifeBuoy,
   Lock,
   LogOut,
   Search,
@@ -86,6 +87,7 @@ const MENU_ITEMS = [
   { key: "statistics", label: "Thống kê", icon: BarChart3 },
   { key: "performance", label: "Hiệu suất", icon: Gauge },
   { key: "staff", label: "Quản lý nhân viên", icon: UserRoundPlus },
+  { key: "complaints", label: "Complaints & Support", icon: LifeBuoy },
   { key: "pricing", label: "Cấu hình phí", icon: Settings },
 ];
 
@@ -96,8 +98,18 @@ const VEHICLE_TABS = ["Bike", "Car"];
 const VEHICLE_TYPE_VALUES = { Bike: 1, Car: 2 };
 const USER_DRIVER_PAGE_SIZE = 10;
 const STAT_PERIODS = ["Ngày", "Tháng", "Năm"];
-const STAT_CHART_LABELS = ["6h", "9h", "12h", "15h", "18h", "21h", "24h"];
 const TOP_DRIVER_RANKS = ["rank-gold", "rank-silver", "rank-orange", "rank-blue", "rank-purple"];
+const COMPLAINT_STATUS_OPTIONS = [
+  { label: "Tất cả", value: "" },
+  { label: "Chờ xử lý", value: "Pending", code: 1 },
+  { label: "Đang xử lý", value: "InReview", code: 2 },
+  { label: "Đã giải quyết", value: "Resolved", code: 3 },
+  { label: "Từ chối", value: "Rejected", code: 4 },
+];
+const COMPLAINT_STATUS_CODE = COMPLAINT_STATUS_OPTIONS.reduce((map, option) => {
+  if (option.value) map[option.value] = option.code;
+  return map;
+}, {});
 const PRICING_RULES = [
   { key: "baseDistance", code: 1, name: "BaseDistance", label: "Số km mở cửa", unit: 2 },
   { key: "baseFare", code: 2, name: "BaseFare", label: "Giá mở cửa", unit: 1 },
@@ -106,15 +118,6 @@ const PRICING_RULES = [
   { key: "minimumFare", code: 6, name: "MinimumFare", label: "Giá tối thiểu", unit: 1 },
   { key: "commission", code: 8, name: "Commission", label: "Hoa hồng platform", unit: 4 },
 ];
-
-function getStoredSession() {
-  try {
-    const rawSession = localStorage.getItem("fptRideAdminSession");
-    return rawSession ? JSON.parse(rawSession) : null;
-  } catch {
-    return null;
-  }
-}
 
 async function apiRequest(path, { token, ...options } = {}) {
   const url = `${API_BASE_URL}${path}`;
@@ -185,17 +188,6 @@ function formatCount(value) {
   return numberValue.toLocaleString("vi-VN");
 }
 
-function isSameDay(value, targetDate = new Date()) {
-  if (!value) return false;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return false;
-  return (
-    date.getFullYear() === targetDate.getFullYear() &&
-    date.getMonth() === targetDate.getMonth() &&
-    date.getDate() === targetDate.getDate()
-  );
-}
-
 function pickNumber(source, keys) {
   for (const key of keys) {
     const value = Number(source?.[key]);
@@ -214,6 +206,12 @@ function formatOptionalPercent(value) {
   const numberValue = Number(value);
   if (!Number.isFinite(numberValue)) return "--";
   return `${Math.round(numberValue)}%`;
+}
+
+function getStatisticsPeriodKey(period) {
+  if (period === "Tháng") return "month";
+  if (period === "Năm") return "year";
+  return "day";
 }
 
 function getInitials(value) {
@@ -251,8 +249,25 @@ function pickRule(setting, code) {
   return setting?.rules?.find((rule) => normalizeRuleCode(rule.ruleCode) === code);
 }
 
+function getPricingSaveErrorMessage(error) {
+  const message = error?.message || "Không lưu được cấu hình phí.";
+
+  if (
+    message.includes("/admin/pricing/version") &&
+    message.includes("HTTP 500")
+  ) {
+    return [
+      "BE đang lỗi khi tạo audit log cấu hình phí.",
+      "API /api/admin/pricing/version hiện dùng userId random nên có thể bị FK FareAuditLogs_AspNetUsers_UserId.",
+      "Cần BE lấy userId từ token hoặc bỏ/sửa FK audit log thì mới lưu được.",
+    ].join(" ");
+  }
+
+  return message;
+}
+
 function App() {
-  const [session, setSession] = useState(getStoredSession);
+  const [session, setSession] = useState(null);
   const [activePage, setActivePage] = useState("dashboard");
 
   function handleLogin(nextSession) {
@@ -270,10 +285,6 @@ function App() {
     return <LoginPage onLogin={handleLogin} />;
   }
 
-  if (String(session.role || "").toLowerCase() === "manager") {
-    return <ManagerShell session={session} onLogout={handleLogout} />;
-  }
-
   return (
     <AdminShell
       session={session}
@@ -281,23 +292,6 @@ function App() {
       onNavigate={setActivePage}
       onLogout={handleLogout}
     />
-  );
-}
-
-function ManagerShell({ session, onLogout }) {
-  return (
-    <main className="manager-page">
-      <header className="manager-header">
-        <div>
-          <h1>FPT Ride Manager</h1>
-          <p>{session.fullName || session.email}</p>
-        </div>
-        <button className="manager-logout" onClick={onLogout}>
-          <LogOut size={18} />
-          Đăng xuất
-        </button>
-      </header>
-    </main>
   );
 }
 
@@ -429,9 +423,10 @@ function AdminShell({ session, activePage, onNavigate, onLogout }) {
           {activePage === "users" ? <UsersDriversManagement token={session.accessToken} /> : null}
           {activePage === "statistics" ? <StatisticsPage token={session.accessToken} /> : null}
           {activePage === "performance" ? <PerformancePage token={session.accessToken} /> : null}
+          {activePage === "complaints" ? <ComplaintsSupport token={session.accessToken} /> : null}
           {activePage === "staff" ? <StaffManagement token={session.accessToken} /> : null}
           {activePage === "pricing" ? <PricingConfig token={session.accessToken} /> : null}
-          {!["dashboard", "users", "statistics", "performance", "staff", "pricing"].includes(activePage) ? (
+          {!["dashboard", "users", "statistics", "performance", "complaints", "staff", "pricing"].includes(activePage) ? (
             <BlankPage title={activeItem?.label || "Trang quản trị"} />
           ) : null}
         </main>
@@ -441,64 +436,49 @@ function AdminShell({ session, activePage, onNavigate, onLogout }) {
 }
 
 function Dashboard({ token }) {
-  const [stats, setStats] = useState({
-    totalUsers: null,
-    totalDrivers: null,
-    activePricing: null,
-  });
+  const [overview, setOverview] = useState(null);
   const [error, setError] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
-    Promise.allSettled([
-      apiRequest("/accounts?page=1&pageSize=1", { token }),
-      apiRequest("/accounts?role=Driver&page=1&pageSize=1", { token }),
-      apiRequest("/admin/pricing", { token }),
-    ]).then(([accountsResult, driversResult, pricingResult]) => {
-      const nextStats = {
-        totalUsers: null,
-        totalDrivers: null,
-        activePricing: null,
-      };
-      const errors = [];
+    let isMounted = true;
+    setIsLoading(true);
+    setError("");
 
-      if (accountsResult.status === "fulfilled") {
-        nextStats.totalUsers = getTotalCount(accountsResult.value);
-      } else {
-        errors.push(accountsResult.reason.message);
-      }
+    apiRequest("/admin/statistics?period=day", { token })
+      .then((data) => {
+        if (!isMounted) return;
+        setOverview(data?.overview || data?.Overview || null);
+      })
+      .catch((requestError) => {
+        if (!isMounted) return;
+        setOverview(null);
+        setError(requestError.message);
+      })
+      .finally(() => {
+        if (isMounted) setIsLoading(false);
+      });
 
-      if (driversResult.status === "fulfilled") {
-        nextStats.totalDrivers = getTotalCount(driversResult.value);
-      } else {
-        errors.push(driversResult.reason.message);
-      }
-
-      if (pricingResult.status === "fulfilled") {
-        const nextPricing = getListPayload(pricingResult.value);
-        nextStats.activePricing = nextPricing.filter((item) => item.status === "Active").length;
-      } else {
-        errors.push(pricingResult.reason.message);
-      }
-
-      setStats(nextStats);
-      setError(errors[0] || "");
-    });
+    return () => {
+      isMounted = false;
+    };
   }, [token]);
 
   const metrics = useMemo(() => {
     return [
-      { label: "Tổng Users", value: formatCount(stats.totalUsers), icon: Users, tone: "blue" },
-      { label: "Tổng Drivers", value: formatCount(stats.totalDrivers), icon: Bike, tone: "green" },
-      { label: "Tổng chuyến", value: "--", icon: ShieldAlert, tone: "purple" },
-      { label: "Hoàn thành", value: "--", icon: CheckCircle2, tone: "teal" },
-      { label: "Tỷ lệ hủy chuyến", value: "--", icon: null, tone: "red", wide: true },
-      { label: "Bảng giá active", value: formatCount(stats.activePricing), icon: Settings, tone: "orange" },
+      { label: "Tổng Users", value: formatCount(overview?.totalUsers), icon: Users, tone: "blue" },
+      { label: "Tổng Drivers", value: formatCount(overview?.totalDrivers), icon: Bike, tone: "green" },
+      { label: "Tổng chuyến", value: formatCount(overview?.totalTrips), icon: ShieldAlert, tone: "purple" },
+      { label: "Hoàn thành", value: formatCount(overview?.completedTrips), icon: CheckCircle2, tone: "teal" },
+      { label: "Tỷ lệ hủy chuyến", value: overview ? `${formatCount(overview.cancellationRate)}%` : "--", icon: null, tone: "red", wide: true },
+      { label: "Bảng giá active", value: formatCount(overview?.activePricing), icon: Settings, tone: "orange" },
     ];
-  }, [stats]);
+  }, [overview]);
 
   return (
     <section>
       <h2 className="page-title">Dashboard</h2>
+      {isLoading ? <div className="notice-card">Đang tải thống kê...</div> : null}
       {error ? <div className="notice-card">{error}</div> : null}
       <div className="metric-grid">
         {metrics.map((metric) => {
@@ -513,27 +493,18 @@ function Dashboard({ token }) {
               </div>
               <span>{metric.label}</span>
               <strong>{metric.value}</strong>
-              {metric.wide ? <div className="cancel-ring">--</div> : null}
+              {metric.wide ? <div className="cancel-ring">{metric.value}</div> : null}
             </article>
           );
         })}
       </div>
-      <p className="data-note">
-        Tổng chuyến, hoàn thành và tỷ lệ hủy đang chờ BE bổ sung API thống kê toàn hệ thống.
-      </p>
     </section>
   );
 }
 
 function StatisticsPage({ token }) {
   const [activePeriod, setActivePeriod] = useState("Ngày");
-  const [stats, setStats] = useState({
-    newUsersToday: null,
-    totalDrivers: null,
-    tripsToday: null,
-    revenueToday: null,
-    activeDrivers: null,
-  });
+  const [stats, setStats] = useState(null);
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
@@ -542,54 +513,40 @@ function StatisticsPage({ token }) {
     setIsLoading(true);
     setError("");
 
-    Promise.allSettled([
-      apiRequest("/accounts?page=1&pageSize=100", { token }),
-      apiRequest("/accounts?role=Driver&page=1&pageSize=1", { token }),
-    ]).then(([accountsResult, driversResult]) => {
-      if (!isMounted) return;
-
-      const nextStats = {
-        newUsersToday: null,
-        totalDrivers: null,
-        tripsToday: null,
-        revenueToday: null,
-        activeDrivers: null,
-      };
-      const errors = [];
-
-      if (accountsResult.status === "fulfilled") {
-        nextStats.newUsersToday = getListPayload(accountsResult.value).filter((account) =>
-          isSameDay(account.createdAt)
-        ).length;
-      } else {
-        errors.push(accountsResult.reason.message);
-      }
-
-      if (driversResult.status === "fulfilled") {
-        nextStats.totalDrivers = getTotalCount(driversResult.value);
-      } else {
-        errors.push(driversResult.reason.message);
-      }
-
-      setStats(nextStats);
-      setError(errors[0] || "");
-      setIsLoading(false);
-    });
+    apiRequest(`/admin/statistics?period=${getStatisticsPeriodKey(activePeriod)}`, { token })
+      .then((data) => {
+        if (!isMounted) return;
+        setStats(data?.period || data?.Period || null);
+      })
+      .catch((requestError) => {
+        if (!isMounted) return;
+        setStats(null);
+        setError(requestError.message);
+      })
+      .finally(() => {
+        if (isMounted) setIsLoading(false);
+      });
 
     return () => {
       isMounted = false;
     };
-  }, [token]);
+  }, [activePeriod, token]);
+
+  const chartPoints = stats?.tripChart || stats?.TripChart || [];
+  const maxChartValue = Math.max(
+    1,
+    ...chartPoints.map((point) => Number(point.value ?? point.Value ?? 0))
+  );
 
   const statCards = [
-    { label: "Doanh thu hôm nay", value: formatCurrency(stats.revenueToday), tone: "ink" },
+    { label: `Doanh thu ${activePeriod.toLowerCase()}`, value: formatCurrency(stats?.revenue), tone: "ink" },
     {
       label: "User mới",
-      value: stats.newUsersToday === null ? "--" : `+${formatCount(stats.newUsersToday)}`,
+      value: stats ? `+${formatCount(stats.newUsers)}` : "--",
       tone: "blue",
     },
-    { label: "Driver hoạt động", value: formatCount(stats.activeDrivers), tone: "green" },
-    { label: "Chuyến hôm nay", value: formatCount(stats.tripsToday), tone: "purple" },
+    { label: "Driver hoạt động", value: formatCount(stats?.activeDrivers), tone: "green" },
+    { label: `Chuyến ${activePeriod.toLowerCase()}`, value: formatCount(stats?.trips), tone: "purple" },
   ];
 
   return (
@@ -610,21 +567,27 @@ function StatisticsPage({ token }) {
 
       <div className="statistics-grid">
         <article className="statistics-chart-card">
-          <h3>Chuyến đi hôm nay</h3>
-          <div className="bar-chart" aria-label="Biểu đồ chuyến đi hôm nay">
-            {STAT_CHART_LABELS.map((label) => (
+          <h3>Chuyến đi {activePeriod.toLowerCase()}</h3>
+          <div className="bar-chart" aria-label={`Biểu đồ chuyến đi ${activePeriod.toLowerCase()}`}>
+            {chartPoints.map((point) => {
+              const label = point.label || point.Label;
+              const value = Number(point.value ?? point.Value ?? 0);
+              const height = Math.max(6, Math.round((value / maxChartValue) * 190));
+
+              return (
               <div className="bar-column" key={label}>
                 <div className="bar-track">
-                  <span className="empty-bar" style={{ height: 0 }} />
+                  <span className="filled-bar" style={{ height }} title={`${value} chuyến`} />
                 </div>
                 <strong>{label}</strong>
               </div>
-            ))}
-            <div className="chart-empty-note">
-              {isLoading
-                ? "Đang tải dữ liệu..."
-                : "Chưa có API thống kê số chuyến theo khung giờ."}
-            </div>
+              );
+            })}
+            {isLoading || !chartPoints.length ? (
+              <div className="chart-empty-note">
+                {isLoading ? "Đang tải dữ liệu..." : "Chưa có dữ liệu thống kê."}
+              </div>
+            ) : null}
           </div>
         </article>
 
@@ -639,10 +602,6 @@ function StatisticsPage({ token }) {
       </div>
 
       {error ? <div className="notice-card statistics-error">{error}</div> : null}
-      <p className="data-note">
-        User mới và tổng driver lấy từ DB qua API tài khoản. Doanh thu, chuyến hôm nay,
-        driver hoạt động và biểu đồ theo giờ đang chờ BE bổ sung API thống kê tổng hợp.
-      </p>
     </section>
   );
 }
@@ -657,7 +616,7 @@ function PerformancePage({ token }) {
     setIsLoading(true);
     setError("");
 
-    apiRequest("/accounts?role=Driver&page=1&pageSize=5", { token })
+    apiRequest("/admin/statistics/drivers/top?limit=5", { token })
       .then((data) => {
         if (!isMounted) return;
         setDrivers(getListPayload(data));
@@ -689,26 +648,18 @@ function PerformancePage({ token }) {
         ) : drivers.length ? (
           <div className="driver-rank-list">
             {drivers.map((driver, index) => {
-              const tripCount = pickNumber(driver, [
-                "completedTrips",
-                "totalTrips",
-                "tripCount",
-                "completedTripCount",
-              ]);
-              const rating = pickNumber(driver, ["averageRating", "rating", "ratingAverage"]);
-              const completionRate = pickNumber(driver, [
-                "completionRate",
-                "successRate",
-                "completedRate",
-              ]);
+              const tripCount = pickNumber(driver, ["completedTrips", "CompletedTrips"]);
+              const rating = pickNumber(driver, ["averageRating", "AverageRating"]);
+              const completionRate = pickNumber(driver, ["completionRate", "CompletionRate"]);
+              const driverId = driver.driverId || driver.DriverId || driver.userId;
 
               return (
-                <div className="driver-rank-row" key={driver.userId || driver.email}>
+                <div className="driver-rank-row" key={driverId || driver.email}>
                   <span className={`rank-badge ${TOP_DRIVER_RANKS[index] || "rank-blue"}`}>
                     {index + 1}
                   </span>
                   <div className="driver-rank-main">
-                    <strong>{driver.fullName || driver.email || "--"}</strong>
+                    <strong>{driver.fullName || driver.FullName || driver.email || driver.Email || "--"}</strong>
                     <span>
                       {tripCount === null ? "--" : formatCount(tripCount)} chuyến
                     </span>
@@ -726,10 +677,6 @@ function PerformancePage({ token }) {
         )}
       </article>
 
-      <p className="data-note">
-        Danh sách tài xế lấy từ DB qua API tài khoản. Số chuyến, rating và tỷ lệ hoàn thành
-        sẽ hiển thị khi BE trả thêm các trường hiệu suất cho driver.
-      </p>
     </section>
   );
 }
@@ -1367,6 +1314,209 @@ function DetailItem({ label, value }) {
   );
 }
 
+function ComplaintsSupport({ token }) {
+  const [complaints, setComplaints] = useState([]);
+  const [statusFilter, setStatusFilter] = useState("");
+  const [selectedComplaint, setSelectedComplaint] = useState(null);
+  const [processStatus, setProcessStatus] = useState("InReview");
+  const [resolutionNote, setResolutionNote] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState("");
+  const [processError, setProcessError] = useState("");
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  useEffect(() => {
+    const statusOption = COMPLAINT_STATUS_OPTIONS.find((option) => option.value === statusFilter);
+    const query = statusOption?.code ? `?status=${statusOption.code}` : "";
+
+    setIsLoading(true);
+    apiRequest(`/reports${query}`, { token })
+      .then((data) => {
+        setComplaints(getListPayload(data));
+        setError("");
+      })
+      .catch((requestError) => setError(requestError.message))
+      .finally(() => setIsLoading(false));
+  }, [statusFilter, token, refreshKey]);
+
+  function openProcessModal(complaint) {
+    const currentStatus = complaint.status || complaint.Status || "Pending";
+    setSelectedComplaint(complaint);
+    setProcessStatus(currentStatus === "Pending" ? "InReview" : currentStatus);
+    setResolutionNote(complaint.resolutionNote || complaint.ResolutionNote || "");
+    setProcessError("");
+  }
+
+  async function handleProcessComplaint(event) {
+    event.preventDefault();
+    setProcessError("");
+    setIsSubmitting(true);
+
+    try {
+      await apiRequest(`/reports/${selectedComplaint.id || selectedComplaint.Id}/process`, {
+        token,
+        method: "PUT",
+        body: JSON.stringify({
+          status: COMPLAINT_STATUS_CODE[processStatus],
+          resolutionNote: resolutionNote.trim() || null,
+        }),
+      });
+
+      setSelectedComplaint(null);
+      setRefreshKey((value) => value + 1);
+    } catch (requestError) {
+      setProcessError(requestError.message);
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  const statusSummary = COMPLAINT_STATUS_OPTIONS.filter((option) => option.value).map((option) => ({
+    ...option,
+    total: complaints.filter((complaint) => (complaint.status || complaint.Status) === option.value).length,
+  }));
+
+  return (
+    <section>
+      <div className="section-header">
+        <div>
+          <p className="eyebrow">Complaints & Support</p>
+          <h2 className="page-title">Xử lý khiếu nại</h2>
+        </div>
+        <button className="primary-button" onClick={() => setRefreshKey((value) => value + 1)}>
+          Làm mới
+        </button>
+      </div>
+
+      <div className="complaint-summary">
+        {statusSummary.map((item) => (
+          <article key={item.value}>
+            <span>{item.label}</span>
+            <strong>{item.total}</strong>
+          </article>
+        ))}
+      </div>
+
+      <div className="toolbar-card">
+        <label>
+          Trạng thái
+          <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+            {COMPLAINT_STATUS_OPTIONS.map((option) => (
+              <option key={option.value || "all"} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      {error ? <div className="notice-card">{error}</div> : null}
+
+      <div className="data-card">
+        <table>
+          <thead>
+            <tr>
+              <th>Người gửi</th>
+              <th>Vai trò</th>
+              <th>Trạng thái</th>
+              <th>Tài xế</th>
+              <th>Nội dung</th>
+              <th>Ngày gửi</th>
+              <th>Thao tác</th>
+            </tr>
+          </thead>
+          <tbody>
+            {isLoading ? (
+              <tr>
+                <td colSpan="7" className="empty-cell">Đang tải khiếu nại...</td>
+              </tr>
+            ) : complaints.length ? (
+              complaints.map((complaint) => (
+                <tr key={complaint.id || complaint.Id}>
+                  <td>{complaint.reporterName || complaint.ReporterName || "--"}</td>
+                  <td>{complaint.reporterRole || complaint.ReporterRole || "--"}</td>
+                  <td>
+                    <span className={`status-pill complaint-${String(complaint.status || complaint.Status).toLowerCase()}`}>
+                      {getComplaintStatusLabel(complaint.status || complaint.Status)}
+                    </span>
+                  </td>
+                  <td>{complaint.driverName || complaint.DriverName || "--"}</td>
+                  <td className="complaint-reason">{complaint.reason || complaint.Reason || "--"}</td>
+                  <td>{formatDate(complaint.createdAt || complaint.CreatedAt)}</td>
+                  <td>
+                    <button className="ghost-button" onClick={() => openProcessModal(complaint)}>
+                      Xử lý
+                    </button>
+                  </td>
+                </tr>
+              ))
+            ) : (
+              <tr>
+                <td colSpan="7" className="empty-cell">Chưa có khiếu nại phù hợp.</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {selectedComplaint ? (
+        <div className="modal-backdrop" role="presentation">
+          <section className="modal-card" aria-label="Xử lý khiếu nại">
+            <div className="modal-heading">
+              <div>
+                <h3>Xử lý khiếu nại</h3>
+                <p>Trip #{String(selectedComplaint.tripId || selectedComplaint.TripId || "").slice(0, 8)}</p>
+              </div>
+              <button className="ghost-button" onClick={() => setSelectedComplaint(null)}>
+                Đóng
+              </button>
+            </div>
+
+            <div className="complaint-detail">
+              <DetailItem label="Người gửi" value={selectedComplaint.reporterName || selectedComplaint.ReporterName} />
+              <DetailItem label="Vai trò" value={selectedComplaint.reporterRole || selectedComplaint.ReporterRole} />
+              <DetailItem label="Tài xế" value={selectedComplaint.driverName || selectedComplaint.DriverName} />
+              <p>{selectedComplaint.reason || selectedComplaint.Reason}</p>
+            </div>
+
+            <form className="modal-form" onSubmit={handleProcessComplaint}>
+              <label>
+                Trạng thái xử lý
+                <select value={processStatus} onChange={(event) => setProcessStatus(event.target.value)}>
+                  {COMPLAINT_STATUS_OPTIONS.filter((option) => option.value && option.value !== "Pending").map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Ghi chú xử lý
+                <textarea
+                  value={resolutionNote}
+                  rows={4}
+                  maxLength={1000}
+                  onChange={(event) => setResolutionNote(event.target.value)}
+                  placeholder="Nhập kết quả xử lý cho khách/tài xế theo dõi"
+                />
+              </label>
+              {processError ? <div className="error-banner">{processError}</div> : null}
+              <button className="primary-button" type="submit" disabled={isSubmitting}>
+                {isSubmitting ? "Đang lưu..." : "Lưu xử lý"}
+              </button>
+            </form>
+          </section>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function getComplaintStatusLabel(status) {
+  return COMPLAINT_STATUS_OPTIONS.find((option) => option.value === status)?.label || status || "--";
+}
+
 function PricingConfig({ token }) {
   const [activeVehicle, setActiveVehicle] = useState("Bike");
   const [settings, setSettings] = useState([]);
@@ -1457,7 +1607,7 @@ function PricingConfig({ token }) {
       setIsPricingOpen(false);
       setPricingRefreshKey((value) => value + 1);
     } catch (requestError) {
-      setPricingError(requestError.message);
+      setPricingError(getPricingSaveErrorMessage(requestError));
     } finally {
       setIsSavingPricing(false);
     }

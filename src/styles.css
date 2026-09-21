@@ -422,7 +422,7 @@ button {
 .bar-chart {
   position: relative;
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(44px, 1fr));
   align-items: end;
   gap: 10px;
   height: 238px;
@@ -453,6 +453,10 @@ button {
 .bar-track .empty-bar {
   min-height: 0;
   background: #e8eef7;
+}
+
+.bar-track .filled-bar {
+  background: linear-gradient(180deg, #ff6b10 0%, #ff9c3c 58%, #ffd9a7 100%);
 }
 
 .chart-empty-note {
@@ -954,6 +958,134 @@ th {
   justify-content: space-between;
   padding: 16px 20px;
   color: #49607f;
+}
+
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 20px;
+}
+
+.toolbar-card,
+.data-card {
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 18px 50px rgba(16, 24, 40, 0.06);
+}
+
+.toolbar-card {
+  display: flex;
+  align-items: flex-end;
+  gap: 16px;
+  margin-bottom: 18px;
+  padding: 18px;
+}
+
+.toolbar-card label {
+  display: grid;
+  gap: 8px;
+  color: #18233a;
+  font-weight: 800;
+}
+
+.toolbar-card select {
+  min-width: 220px;
+  height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  color: var(--ink);
+  padding: 0 12px;
+}
+
+.data-card {
+  overflow: hidden;
+}
+
+.complaint-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 18px;
+}
+
+.complaint-summary article {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: #fff;
+  padding: 16px;
+}
+
+.complaint-summary span {
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.complaint-summary strong {
+  display: block;
+  margin-top: 8px;
+  color: var(--ink);
+  font-size: 26px;
+}
+
+.status-pill.complaint-pending {
+  background: #fff7d6;
+  color: #a15c00;
+}
+
+.status-pill.complaint-inreview {
+  background: #dfe9ff;
+  color: #2458ff;
+}
+
+.status-pill.complaint-resolved {
+  background: #d8f8e4;
+  color: #059447;
+}
+
+.status-pill.complaint-rejected {
+  background: #ffe4e6;
+  color: #e11d48;
+}
+
+.complaint-reason {
+  max-width: 300px;
+  color: #334155;
+}
+
+.complaint-detail {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.complaint-detail p {
+  margin: 0;
+  border-radius: 12px;
+  background: #f8fafc;
+  color: #334155;
+  line-height: 1.5;
+  padding: 14px;
+}
+
+.modal-form textarea {
+  width: 100%;
+  resize: vertical;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  background: #fff;
+  color: var(--ink);
+  outline: none;
+  padding: 12px 14px;
+  font: inherit;
+}
+
+.modal-form textarea:focus {
+  border-color: var(--brand);
+  box-shadow: 0 0 0 4px rgba(255, 107, 10, 0.12);
 }
 
 .pagination {

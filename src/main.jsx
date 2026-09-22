@@ -24,7 +24,6 @@ import {
   XCircle,
 } from "lucide-react";
 import "./styles.css";
-import { FIXED_ADMIN_ACCOUNT } from "./config/authAccounts";
 
 function normalizeApiBaseUrl(value) {
   const rawValue = String(value || "/api").trim().replace(/\/$/, "");
@@ -285,11 +284,7 @@ function getPricingSaveErrorMessage(error) {
     message.includes("/admin/pricing/version") &&
     message.includes("HTTP 500")
   ) {
-    return [
-      "BE đang lỗi khi tạo audit log cấu hình phí.",
-      "API /api/admin/pricing/version hiện dùng userId random nên có thể bị FK FareAuditLogs_AspNetUsers_UserId.",
-      "Cần BE lấy userId từ token hoặc bỏ/sửa FK audit log thì mới lưu được.",
-    ].join(" ");
+    return "Không lưu được cấu hình phí. Vui lòng kiểm tra lại thông tin và thử lại sau.";
   }
 
   return message;
@@ -300,14 +295,7 @@ function App() {
   const [activePage, setActivePage] = useState("dashboard");
 
   useEffect(() => {
-    const storedSession = localStorage.getItem("fptRideAdminSession");
-    if (!storedSession) return;
-
-    try {
-      setSession(JSON.parse(storedSession));
-    } catch {
-      localStorage.removeItem("fptRideAdminSession");
-    }
+    localStorage.removeItem("fptRideAdminSession");
   }, []);
 
   function handleLogin(nextSession) {
@@ -336,8 +324,8 @@ function App() {
 }
 
 function LoginPage({ onLogin }) {
-  const [email, setEmail] = useState(FIXED_ADMIN_ACCOUNT.email);
-  const [password, setPassword] = useState(FIXED_ADMIN_ACCOUNT.password);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -381,10 +369,6 @@ function LoginPage({ onLogin }) {
         <p className="login-subtitle">
           Sử dụng tài khoản Admin, Manager hoặc Staff để quản lý hệ thống.
         </p>
-        <div className="fixed-login-note">
-          Admin cố định: <strong>{FIXED_ADMIN_ACCOUNT.email}</strong> / {FIXED_ADMIN_ACCOUNT.password}
-        </div>
-
         <form onSubmit={handleSubmit} className="login-form">
           <label>
             Email

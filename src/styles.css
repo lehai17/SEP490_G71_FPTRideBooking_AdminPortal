@@ -84,16 +84,6 @@ button {
   line-height: 1.6;
 }
 
-.fixed-login-note {
-  margin: -10px 0 18px;
-  border: 1px solid #ffd8bf;
-  border-radius: 12px;
-  background: #fff7ed;
-  color: #9a3412;
-  padding: 12px 14px;
-  font-size: 14px;
-  font-weight: 800;
-}
 
 .login-form {
   display: grid;

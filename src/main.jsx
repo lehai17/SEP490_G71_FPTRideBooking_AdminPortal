@@ -8,6 +8,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Eye,
+  FileCheck2,
   Gauge,
   KeyRound,
   LayoutDashboard,
@@ -20,8 +21,10 @@ import {
   Unlock,
   Users,
   UserRoundPlus,
+  XCircle,
 } from "lucide-react";
 import "./styles.css";
+import { FIXED_ADMIN_ACCOUNT } from "./config/authAccounts";
 
 function normalizeApiBaseUrl(value) {
   const rawValue = String(value || "/api").trim().replace(/\/$/, "");
@@ -87,8 +90,12 @@ const MENU_ITEMS = [
   { key: "statistics", label: "Thống kê", icon: BarChart3 },
   { key: "performance", label: "Hiệu suất", icon: Gauge },
   { key: "staff", label: "Quản lý nhân viên", icon: UserRoundPlus },
-  { key: "complaints", label: "Complaints & Support", icon: LifeBuoy },
   { key: "pricing", label: "Cấu hình phí", icon: Settings },
+];
+const STAFF_MENU_ITEMS = [
+  { key: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { key: "driver-approvals", label: "Duyệt hồ sơ tài xế", icon: FileCheck2 },
+  { key: "complaints", label: "Complaints & Support", icon: LifeBuoy },
 ];
 
 const ROLE_OPTIONS = ["Tất cả vai trò", "Manager", "Staff"];
@@ -110,6 +117,21 @@ const COMPLAINT_STATUS_CODE = COMPLAINT_STATUS_OPTIONS.reduce((map, option) => {
   if (option.value) map[option.value] = option.code;
   return map;
 }, {});
+const DRIVER_REGISTRATION_STATUS_OPTIONS = [
+  { label: "Chờ duyệt", value: "Pending", code: 0 },
+  { label: "Đã duyệt", value: "Approved", code: 1 },
+  { label: "Từ chối", value: "Rejected", code: 2 },
+];
+const VEHICLE_TYPE_LABELS = {
+  0: "Bike",
+  1: "Car",
+  2: "SUV",
+  3: "Van",
+  Bike: "Bike",
+  Car: "Car",
+  SUV: "SUV",
+  Van: "Van",
+};
 const PRICING_RULES = [
   { key: "baseDistance", code: 1, name: "BaseDistance", label: "Số km mở cửa", unit: 2 },
   { key: "baseFare", code: 2, name: "BaseFare", label: "Giá mở cửa", unit: 1 },
@@ -174,6 +196,13 @@ function formatDate(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "--";
   return date.toLocaleDateString("vi-VN");
+}
+
+function buildAssetUrl(value) {
+  if (!value) return "";
+  if (/^https?:\/\//i.test(value)) return value;
+  const apiRoot = API_BASE_URL === "/api" ? LOCAL_API_BASE_URL : API_BASE_URL;
+  return `${apiRoot.replace(/\/api$/, "")}${value.startsWith("/") ? value : `/${value}`}`;
 }
 
 function formatCurrency(value) {
@@ -270,6 +299,17 @@ function App() {
   const [session, setSession] = useState(null);
   const [activePage, setActivePage] = useState("dashboard");
 
+  useEffect(() => {
+    const storedSession = localStorage.getItem("fptRideAdminSession");
+    if (!storedSession) return;
+
+    try {
+      setSession(JSON.parse(storedSession));
+    } catch {
+      localStorage.removeItem("fptRideAdminSession");
+    }
+  }, []);
+
   function handleLogin(nextSession) {
     setSession(nextSession);
     localStorage.setItem("fptRideAdminSession", JSON.stringify(nextSession));
@@ -296,8 +336,8 @@ function App() {
 }
 
 function LoginPage({ onLogin }) {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [email, setEmail] = useState(FIXED_ADMIN_ACCOUNT.email);
+  const [password, setPassword] = useState(FIXED_ADMIN_ACCOUNT.password);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -341,6 +381,9 @@ function LoginPage({ onLogin }) {
         <p className="login-subtitle">
           Sử dụng tài khoản Admin, Manager hoặc Staff để quản lý hệ thống.
         </p>
+        <div className="fixed-login-note">
+          Admin cố định: <strong>{FIXED_ADMIN_ACCOUNT.email}</strong> / {FIXED_ADMIN_ACCOUNT.password}
+        </div>
 
         <form onSubmit={handleSubmit} className="login-form">
           <label>
@@ -374,7 +417,15 @@ function LoginPage({ onLogin }) {
 }
 
 function AdminShell({ session, activePage, onNavigate, onLogout }) {
-  const activeItem = MENU_ITEMS.find((item) => item.key === activePage);
+  const role = String(session.role || "").toLowerCase();
+  const menuItems = useMemo(() => (role === "staff" ? STAFF_MENU_ITEMS : MENU_ITEMS), [role]);
+  const activeItem = menuItems.find((item) => item.key === activePage);
+
+  useEffect(() => {
+    if (!menuItems.some((item) => item.key === activePage)) {
+      onNavigate(menuItems[0]?.key || "dashboard");
+    }
+  }, [activePage, menuItems, onNavigate]);
 
   return (
     <div className="admin-layout">
@@ -388,7 +439,7 @@ function AdminShell({ session, activePage, onNavigate, onLogout }) {
         </div>
 
         <nav className="sidebar-nav">
-          {MENU_ITEMS.map((item) => {
+          {menuItems.map((item) => {
             const Icon = item.icon;
             return (
               <button
@@ -424,9 +475,10 @@ function AdminShell({ session, activePage, onNavigate, onLogout }) {
           {activePage === "statistics" ? <StatisticsPage token={session.accessToken} /> : null}
           {activePage === "performance" ? <PerformancePage token={session.accessToken} /> : null}
           {activePage === "complaints" ? <ComplaintsSupport token={session.accessToken} /> : null}
+          {activePage === "driver-approvals" ? <DriverApprovals token={session.accessToken} /> : null}
           {activePage === "staff" ? <StaffManagement token={session.accessToken} /> : null}
           {activePage === "pricing" ? <PricingConfig token={session.accessToken} /> : null}
-          {!["dashboard", "users", "statistics", "performance", "complaints", "staff", "pricing"].includes(activePage) ? (
+          {!["dashboard", "users", "statistics", "performance", "complaints", "driver-approvals", "staff", "pricing"].includes(activePage) ? (
             <BlankPage title={activeItem?.label || "Trang quản trị"} />
           ) : null}
         </main>
@@ -1312,6 +1364,298 @@ function DetailItem({ label, value }) {
       <strong>{value || "--"}</strong>
     </div>
   );
+}
+
+function DriverApprovals({ token }) {
+  const [registrations, setRegistrations] = useState([]);
+  const [statusFilter, setStatusFilter] = useState("Pending");
+  const [selectedRegistration, setSelectedRegistration] = useState(null);
+  const [rejectRegistration, setRejectRegistration] = useState(null);
+  const [rejectReason, setRejectReason] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState("");
+  const [actionError, setActionError] = useState("");
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  useEffect(() => {
+    const statusOption = DRIVER_REGISTRATION_STATUS_OPTIONS.find((option) => option.value === statusFilter);
+    const query = statusOption ? `?status=${statusOption.code}` : "";
+
+    setIsLoading(true);
+    setError("");
+    apiRequest(`/driver-registration${query}`, { token })
+      .then((data) => setRegistrations(getListPayload(data)))
+      .catch((requestError) => {
+        setRegistrations([]);
+        setError(requestError.message);
+      })
+      .finally(() => setIsLoading(false));
+  }, [statusFilter, token, refreshKey]);
+
+  async function handleApprove(registration) {
+    const isConfirmed = window.confirm(`Duyệt hồ sơ tài xế ${registration.fullName || registration.FullName || registration.email}?`);
+    if (!isConfirmed) return;
+
+    setActionError("");
+    setIsSubmitting(true);
+    try {
+      await apiRequest(`/driver-registration/${registration.id || registration.Id}/approve`, {
+        token,
+        method: "PUT",
+      });
+      setSelectedRegistration(null);
+      setRefreshKey((value) => value + 1);
+    } catch (requestError) {
+      setActionError(requestError.message);
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleReject(event) {
+    event.preventDefault();
+    setActionError("");
+
+    if (!rejectReason.trim()) {
+      setActionError("Vui lòng nhập lý do từ chối.");
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      await apiRequest(`/driver-registration/${rejectRegistration.id || rejectRegistration.Id}/reject`, {
+        token,
+        method: "PUT",
+        body: JSON.stringify({ reason: rejectReason.trim() }),
+      });
+      setRejectRegistration(null);
+      setSelectedRegistration(null);
+      setRejectReason("");
+      setRefreshKey((value) => value + 1);
+    } catch (requestError) {
+      setActionError(requestError.message);
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  const pendingCount = registrations.filter((item) => getDriverRegistrationStatusValue(item.status ?? item.Status) === "Pending").length;
+
+  return (
+    <section>
+      <div className="section-header">
+        <div>
+          <p className="eyebrow">Staff</p>
+          <h2 className="page-title">Duyệt hồ sơ tài xế</h2>
+        </div>
+        <button className="primary-button" onClick={() => setRefreshKey((value) => value + 1)}>
+          Làm mới
+        </button>
+      </div>
+
+      <div className="approval-summary">
+        <article>
+          <span>Đang hiển thị</span>
+          <strong>{registrations.length}</strong>
+        </article>
+        <article>
+          <span>Chờ duyệt</span>
+          <strong>{pendingCount}</strong>
+        </article>
+      </div>
+
+      <div className="toolbar-card">
+        <label>
+          Trạng thái hồ sơ
+          <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+            {DRIVER_REGISTRATION_STATUS_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      {error ? <div className="notice-card">{error}</div> : null}
+      {actionError ? <div className="error-banner action-error">{actionError}</div> : null}
+
+      <div className="data-card">
+        <table>
+          <thead>
+            <tr>
+              <th>Tài xế</th>
+              <th>Email</th>
+              <th>Loại xe</th>
+              <th>Biển số</th>
+              <th>Ngày nộp</th>
+              <th>Trạng thái</th>
+              <th>Thao tác</th>
+            </tr>
+          </thead>
+          <tbody>
+            {isLoading ? (
+              <tr>
+                <td colSpan="7" className="empty-cell">Đang tải hồ sơ tài xế...</td>
+              </tr>
+            ) : registrations.length ? (
+              registrations.map((registration) => {
+                const status = getDriverRegistrationStatusValue(registration.status ?? registration.Status);
+                return (
+                  <tr key={registration.id || registration.Id}>
+                    <td>{registration.fullName || registration.FullName || "--"}</td>
+                    <td>{registration.email || registration.Email || "--"}</td>
+                    <td>{getVehicleTypeLabel(registration.vehicleType ?? registration.VehicleType)}</td>
+                    <td>{registration.licensePlate || registration.LicensePlate || "--"}</td>
+                    <td>{formatDate(registration.createdAt || registration.CreatedAt)}</td>
+                    <td>
+                      <span className={`status-pill driver-registration-${status.toLowerCase()}`}>
+                        {getDriverRegistrationStatusLabel(status)}
+                      </span>
+                    </td>
+                    <td>
+                      <button className="ghost-button" onClick={() => setSelectedRegistration(registration)}>
+                        Xem
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })
+            ) : (
+              <tr>
+                <td colSpan="7" className="empty-cell">Chưa có hồ sơ tài xế phù hợp.</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {selectedRegistration ? (
+        <div className="modal-backdrop" role="presentation">
+          <section className="modal-card wide-modal" aria-label="Chi tiết hồ sơ tài xế">
+            <div className="modal-heading">
+              <div>
+                <h3>{selectedRegistration.fullName || selectedRegistration.FullName || "Hồ sơ tài xế"}</h3>
+                <p>{selectedRegistration.email || selectedRegistration.Email}</p>
+              </div>
+              <button className="ghost-button" onClick={() => setSelectedRegistration(null)}>
+                Đóng
+              </button>
+            </div>
+
+            <div className="driver-approval-detail">
+              <div className="detail-grid">
+                <DetailItem label="Số điện thoại" value={selectedRegistration.phoneNumber || selectedRegistration.PhoneNumber} />
+                <DetailItem label="CCCD" value={selectedRegistration.citizenId || selectedRegistration.CitizenId} />
+                <DetailItem label="GPLX" value={selectedRegistration.licenseNumber || selectedRegistration.LicenseNumber} />
+                <DetailItem label="Hạng GPLX" value={selectedRegistration.licenseClass || selectedRegistration.LicenseClass} />
+                <DetailItem label="Hạn GPLX" value={formatDate(selectedRegistration.licenseExpiryDate || selectedRegistration.LicenseExpiryDate)} />
+                <DetailItem label="Loại xe" value={getVehicleTypeLabel(selectedRegistration.vehicleType ?? selectedRegistration.VehicleType)} />
+                <DetailItem label="Biển số" value={selectedRegistration.licensePlate || selectedRegistration.LicensePlate} />
+                <DetailItem label="Hãng xe" value={selectedRegistration.vehicleBrand || selectedRegistration.VehicleBrand} />
+                <DetailItem label="Mẫu xe" value={selectedRegistration.vehicleModel || selectedRegistration.VehicleModel} />
+                <DetailItem label="Màu xe" value={selectedRegistration.vehicleColor || selectedRegistration.VehicleColor} />
+                <DetailItem label="Số ghế" value={selectedRegistration.seatCount || selectedRegistration.SeatCount} />
+                <DetailItem label="Trạng thái" value={getDriverRegistrationStatusLabel(selectedRegistration.status ?? selectedRegistration.Status)} />
+              </div>
+
+              <div className="document-grid">
+                <DocumentLink label="Ảnh CCCD" url={selectedRegistration.citizenIdImageUrl || selectedRegistration.CitizenIdImageUrl} />
+                <DocumentLink label="GPLX mặt trước" url={selectedRegistration.licenseImageFrontUrl || selectedRegistration.LicenseImageFrontUrl} />
+                <DocumentLink label="GPLX mặt sau" url={selectedRegistration.licenseImageBackUrl || selectedRegistration.LicenseImageBackUrl} />
+                <DocumentLink label="Ảnh biển số" url={selectedRegistration.licensePlateImageUrl || selectedRegistration.LicensePlateImageUrl} />
+                <DocumentLink label="Đăng ký xe" url={selectedRegistration.vehicleRegistrationImageUrl || selectedRegistration.VehicleRegistrationImageUrl} />
+                <DocumentLink label="Ảnh xe" url={selectedRegistration.vehicleImageUrl || selectedRegistration.VehicleImageUrl} />
+              </div>
+            </div>
+
+            {getDriverRegistrationStatusValue(selectedRegistration.status ?? selectedRegistration.Status) === "Pending" ? (
+              <div className="modal-actions">
+                <button className="primary-button approve-button" disabled={isSubmitting} onClick={() => handleApprove(selectedRegistration)}>
+                  <CheckCircle2 size={18} />
+                  Duyệt hồ sơ
+                </button>
+                <button
+                  className="danger-button"
+                  disabled={isSubmitting}
+                  onClick={() => {
+                    setRejectRegistration(selectedRegistration);
+                    setRejectReason("");
+                    setActionError("");
+                  }}
+                >
+                  <XCircle size={18} />
+                  Từ chối
+                </button>
+              </div>
+            ) : null}
+          </section>
+        </div>
+      ) : null}
+
+      {rejectRegistration ? (
+        <div className="modal-backdrop" role="presentation">
+          <section className="modal-card compact-modal" aria-label="Từ chối hồ sơ tài xế">
+            <div className="modal-heading">
+              <div>
+                <h3>Từ chối hồ sơ</h3>
+                <p>{rejectRegistration.fullName || rejectRegistration.FullName}</p>
+              </div>
+              <button className="ghost-button" onClick={() => setRejectRegistration(null)}>
+                Đóng
+              </button>
+            </div>
+
+            <form className="modal-form" onSubmit={handleReject}>
+              <label>
+                Lý do từ chối
+                <textarea
+                  value={rejectReason}
+                  rows={4}
+                  maxLength={500}
+                  onChange={(event) => setRejectReason(event.target.value)}
+                  placeholder="Nhập lý do để tài xế bổ sung/chỉnh sửa hồ sơ"
+                  required
+                />
+              </label>
+              {actionError ? <div className="error-banner">{actionError}</div> : null}
+              <button className="primary-button" type="submit" disabled={isSubmitting}>
+                {isSubmitting ? "Đang lưu..." : "Lưu từ chối"}
+              </button>
+            </form>
+          </section>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function DocumentLink({ label, url }) {
+  const assetUrl = buildAssetUrl(url);
+
+  return (
+    <a className={assetUrl ? "document-link" : "document-link disabled"} href={assetUrl || undefined} target="_blank" rel="noreferrer">
+      <span>{label}</span>
+      <strong>{assetUrl ? "Mở tài liệu" : "Chưa có"}</strong>
+    </a>
+  );
+}
+
+function getDriverRegistrationStatusValue(status) {
+  if (status === 0 || status === "0") return "Pending";
+  if (status === 1 || status === "1") return "Approved";
+  if (status === 2 || status === "2") return "Rejected";
+  return status || "Pending";
+}
+
+function getDriverRegistrationStatusLabel(status) {
+  const value = getDriverRegistrationStatusValue(status);
+  return DRIVER_REGISTRATION_STATUS_OPTIONS.find((option) => option.value === value)?.label || value || "--";
+}
+
+function getVehicleTypeLabel(vehicleType) {
+  return VEHICLE_TYPE_LABELS[vehicleType] || vehicleType || "--";
 }
 
 function ComplaintsSupport({ token }) {
